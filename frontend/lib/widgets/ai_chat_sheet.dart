@@ -32,7 +32,7 @@ class _AiChatSheetState extends State<AiChatSheet> {
     // Safely pull the key from the .env file!
     final String apiKey = dotenv.env['GEMINI_API_KEY'] ?? ''; 
   
-    _model = GenerativeModel(model: 'gemini-1.5-flash', apiKey: apiKey);
+    _model = GenerativeModel(model: 'gemini-2.5-flash', apiKey: apiKey);
     _chat = _model.startChat();
     _startInitialAnalysis();
   }

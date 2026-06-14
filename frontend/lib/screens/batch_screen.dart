@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Add this to the top
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -24,12 +24,12 @@ class _BatchScreenState extends State<BatchScreen> {
   // Tracks the status of each file: 'pending', 'processing', 'success', 'error'
   Map<String, String> fileStatuses = {};
 
-  final String apiUrl = "";
+  final String apiUrl = "https://dct-watermarking-project.onrender.com";
 
   Future<void> pickHostImages() async {
     FilePickerResult? result = await FilePicker.pickFiles(
       type: FileType.image,
-      allowMultiple: true, // Allows selecting multiple files!
+      allowMultiple: true, 
       withData: true,
     );
 
@@ -78,7 +78,7 @@ class _BatchScreenState extends State<BatchScreen> {
 
       setState(() {
         fileStatuses[currentFile.name] = success ? 'success' : 'error';
-        completedCount++;
+        if (success) completedCount++;
       });
     }
 
@@ -86,16 +86,29 @@ class _BatchScreenState extends State<BatchScreen> {
       isProcessing = false;
     });
 
+    // The Beautiful Success SnackBar
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Batch Processing Complete!'),
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle, color: Colors.white),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Success! $completedCount images have been saved to your gallery and Secure Vault.',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5), 
         ),
       );
     }
-  }
+  } // <--- THIS WAS THE MISSING BRACKET THAT BROKE YOUR CODE!
 
   Future<bool> _processAndSaveSingleFile(PlatformFile hostFile) async {
     try {
@@ -272,7 +285,6 @@ class _BatchScreenState extends State<BatchScreen> {
                         String fileName = hostFiles[index].name;
                         String status = fileStatuses[fileName] ?? 'pending';
 
-                        // Determine the trailing icon based on status
                         Widget statusIcon;
                         if (status == 'pending') {
                           statusIcon = const Icon(Icons.schedule, color: Colors.grey);

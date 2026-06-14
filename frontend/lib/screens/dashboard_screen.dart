@@ -35,7 +35,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? attackPsnr;
   String? currentAttackName; 
 
-  final String apiUrl = "";
+  final String apiUrl = "https://dct-watermarking-project.onrender.com";
 
   // --- YOUR EXACT LOGIC FUNCTIONS (Unchanged) ---
   Future<void> pickImage({required String target}) async {
@@ -234,6 +234,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
+                  
+                  // NEW: THIS IS THE MISSING PREVIEW CODE!
+                  if (hostImageBytes != null || watermarkBytes != null)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (hostImageBytes != null)
+                          Expanded(child: Column(children: [const Text("Host", style: TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 8), Image.memory(hostImageBytes!, height: 100)])),
+                        if (watermarkBytes != null)
+                          Expanded(child: Column(children: [const Text("Logo", style: TextStyle(fontWeight: FontWeight.bold)), const SizedBox(height: 8), Image.memory(watermarkBytes!, height: 100)])),
+                      ],
+                    ),
+                  const SizedBox(height: 16),
+                  // END OF PREVIEW CODE
+
                   if (hostImageBytes != null && watermarkBytes != null)
                     FilledButton(
                       style: FilledButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
@@ -250,7 +265,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 16),
-
           // 2. ATTACK CARD
           Card(
             elevation: 2,

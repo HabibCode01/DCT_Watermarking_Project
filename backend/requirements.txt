@@ -6,3 +6,4 @@ numpy
 matplotlib
 pytest
 httpx
+scikit-image

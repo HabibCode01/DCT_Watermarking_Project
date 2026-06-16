@@ -1,6 +1,7 @@
 import 'dart:io';
+import 'dart:convert'; // Untuk parsing JSON dari graf
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // Add this to the top
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -8,6 +9,7 @@ import 'dart:typed_data';
 import 'package:file_saver/file_saver.dart'; 
 import 'package:gal/gal.dart'; 
 import '../widgets/ai_chat_sheet.dart';
+import '../widgets/audit_graph_sheet.dart'; // Import graf baharu
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -17,7 +19,7 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Your exact state variables
+  // Pembolehubah Embed
   Uint8List? hostImageBytes;
   String? hostFileName;
   Uint8List? watermarkBytes;
@@ -25,19 +27,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Uint8List? resultImageBytes;
   bool isEmbedding = false;
 
+  // Pembolehubah Attack/Extract
   Uint8List? testImageBytes;
   String? testFileName;
   Uint8List? extractedWatermarkBytes;
   bool isExtracting = false;
   bool isAttacking = false;
+  bool isStressTesting = false; // State baharu untuk butang graf
   
+  // Metrik Analisis
   String? attackMse;
   String? attackPsnr;
+  String? attackSsim; // Metrik SSIM baharu
   String? currentAttackName; 
 
   final String apiUrl = "https://dct-watermarking-project.onrender.com";
 
-  // --- YOUR EXACT LOGIC FUNCTIONS (Unchanged) ---
   Future<void> pickImage({required String target}) async {
     FilePickerResult? result = await FilePicker.pickFiles(type: FileType.image, withData: true);
     if (result != null) {
@@ -54,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           extractedWatermarkBytes = null;
           attackMse = null;
           attackPsnr = null;
+          attackSsim = null; 
           currentAttackName = null; 
         }
       });
@@ -66,7 +72,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
       String fileName = 'Protected_Asset_$timestamp';
 
-      // 1. SAVE TO PUBLIC GALLERY / PC STORAGE (Your existing code)
       if (Platform.isAndroid || Platform.isIOS) {
         bool hasAccess = await Gal.hasAccess();
         if (!hasAccess) await Gal.requestAccess();
@@ -80,7 +85,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
 
-      // 2. NEW: SAVE TO SECURE VAULT (Hidden App Directory)
       final directory = await getApplicationDocumentsDirectory();
       final vaultDir = Directory('${directory.path}/SecureVault');
       if (!await vaultDir.exists()) {
@@ -107,19 +111,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (hostImageBytes == null || watermarkBytes == null) return;
     setState(() => isEmbedding = true);
 
-    // 1. Read the user's custom settings
     final prefs = await SharedPreferences.getInstance();
     String alpha = (prefs.getDouble('alphaStrength') ?? 0.5).toString();
     String tiling = (prefs.getInt('tilingFactor') ?? 4).toString();
 
-    // 2. Build the API Request
     var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/embed'));
     
-    // Attach the images
     request.files.add(http.MultipartFile.fromBytes('host_image', hostImageBytes!, filename: hostFileName));
     request.files.add(http.MultipartFile.fromBytes('watermark', watermarkBytes!, filename: watermarkFileName));
-    
-    // 3. ATTACH THE SETTINGS!
     request.fields['alpha'] = alpha;
     request.fields['tiling_factor'] = tiling;
 
@@ -150,6 +149,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           extractedWatermarkBytes = null; 
           attackMse = response.headers['x-mse'];
           attackPsnr = response.headers['x-psnr'];
+          attackSsim = response.headers['x-ssim']; // <-- Membaca nilai SSIM dari Server
           currentAttackName = formattedName; 
         });
       }
@@ -158,22 +158,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // FUNGSI BAHARU: STRESS TEST GRAF
+  Future<void> runStressTest() async {
+    if (testImageBytes == null) return;
+    setState(() => isStressTesting = true);
+
+    try {
+      var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/stresstest'));
+      request.files.add(http.MultipartFile.fromBytes('file', testImageBytes!, filename: testFileName ?? 'stress_target.png'));
+
+      var response = await request.send();
+      if (response.statusCode == 200) {
+        var responseData = await response.stream.bytesToString();
+        var jsonData = json.decode(responseData);
+        
+        if (mounted) {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => AuditGraphSheet(testData: jsonData['data']),
+          );
+        }
+      } else {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Server Error: Failed to run audit.'), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Network Error: $e'), backgroundColor: Colors.red));
+    } finally {
+      setState(() => isStressTesting = false);
+    }
+  }
+
   Future<void> extractWatermark() async {
     if (testImageBytes == null) return;
     setState(() => isExtracting = true);
 
     try {
-      // 1. Read the saved settings
       final prefs = await SharedPreferences.getInstance();
       String tiling = (prefs.getInt('tilingFactor') ?? 4).toString();
       String heavyVoting = (prefs.getBool('heavyVoting') ?? true).toString();
 
-      // 2. Build the request
       var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/extract'));
       String safeFileName = testFileName ?? 'attacked_target.png';
       request.files.add(http.MultipartFile.fromBytes('watermarked_image', testImageBytes!, filename: safeFileName));
       
-      // 3. Attach the Settings!
       request.fields['tiling_factor'] = tiling;
       request.fields['heavy_voting'] = heavyVoting;
 
@@ -194,8 +223,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _showScoresAiInsights() {
-    if (attackPsnr == null || attackMse == null) return;
-    String prompt = 'Act as a multimedia security expert. I ran a robustness test on a DCT watermarked image. The resulting Mean Squared Error (MSE) is $attackMse and the Peak Signal-to-Noise Ratio (PSNR) is $attackPsnr dB. Give a brief, 2-3 sentence analysis of what these scores mean for the image quality.';
+    if (attackPsnr == null || attackSsim == null) return;
+    String prompt = 'Act as a multimedia security expert. I ran a robustness test on a DCT watermarked image. The Peak Signal-to-Noise Ratio (PSNR) is $attackPsnr dB and the Structural Similarity Index (SSIM) is $attackSsim. Give a brief, 2-3 sentence analysis of what these scores mean for the image structural quality.';
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => AiChatSheet(initialPrompt: prompt, titleName: "Gemini Analyst", themeColor: Colors.indigo));
   }
 
@@ -205,7 +234,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => AiChatSheet(initialPrompt: prompt, titleName: "Extraction Analyst", themeColor: Colors.green));
   }
 
-  // --- BEAUTIFUL UI INTEGRATION ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -217,7 +245,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
+          // ==============================
           // 1. EMBED CARD
+          // ==============================
           Card(
             elevation: 2,
             child: Padding(
@@ -235,7 +265,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   const SizedBox(height: 16),
                   
-                  // NEW: THIS IS THE MISSING PREVIEW CODE!
                   if (hostImageBytes != null || watermarkBytes != null)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,7 +276,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ],
                     ),
                   const SizedBox(height: 16),
-                  // END OF PREVIEW CODE
 
                   if (hostImageBytes != null && watermarkBytes != null)
                     FilledButton(
@@ -265,7 +293,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          // 2. ATTACK CARD
+          
+          // ==============================
+          // 2. ATTACK & AUDIT CARD
+          // ==============================
           Card(
             elevation: 2,
             color: Colors.red[50],
@@ -273,7 +304,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  const Text("2. Robustness Testing", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
+                  const Text("2. Robustness Testing & Audit", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.red)),
                   const SizedBox(height: 16),
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
@@ -295,16 +326,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
                     const SizedBox(height: 16),
+                    
+                    // UI BAHARU: SSIM & BUTANG GRAF
                     if (attackMse != null && attackPsnr != null)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Column(
                         children: [
-                          Chip(label: Text("MSE: $attackMse"), backgroundColor: Colors.white),
-                          const SizedBox(width: 8),
-                          Chip(label: Text("PSNR: $attackPsnr dB"), backgroundColor: Colors.white),
-                          IconButton(icon: const Icon(Icons.auto_awesome, color: Colors.indigo), onPressed: _showScoresAiInsights),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Chip(label: Text("PSNR: $attackPsnr dB"), backgroundColor: Colors.white),
+                              const SizedBox(width: 8),
+                              Chip(label: Text("SSIM: $attackSsim"), backgroundColor: Colors.white),
+                              IconButton(icon: const Icon(Icons.auto_awesome, color: Colors.indigo), onPressed: _showScoresAiInsights),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(foregroundColor: Colors.indigo, side: const BorderSide(color: Colors.indigo)),
+                            icon: isStressTesting 
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.analytics),
+                            label: Text(isStressTesting ? "Generating Audit..." : "Generate Deep Security Audit Graph"),
+                            onPressed: isStressTesting ? null : runStressTest,
+                          ),
+                          const SizedBox(height: 16),
                         ],
                       ),
+                    
                     Image.memory(testImageBytes!, height: 150),
                   ]
                 ],
@@ -313,7 +361,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 16),
 
+          // ==============================
           // 3. EXTRACT CARD
+          // ==============================
           Card(
             elevation: 2,
             color: Colors.green[50],

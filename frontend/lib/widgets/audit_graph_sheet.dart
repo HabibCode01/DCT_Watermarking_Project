@@ -3,20 +3,19 @@ import 'package:fl_chart/fl_chart.dart';
 
 class AuditGraphSheet extends StatelessWidget {
   final List<dynamic> testData;
+  final String attackName; // Accepts dynamic attack name
 
-  const AuditGraphSheet({super.key, required this.testData});
+  const AuditGraphSheet({super.key, required this.testData, required this.attackName});
 
   @override
   Widget build(BuildContext context) {
-    // Membina titik-titik koordinat untuk graf berdasarkan data dari Python
     List<FlSpot> ssimSpots = [];
     for (var item in testData) {
-      double quality = item['quality'].toDouble();
+      double intensity = item['intensity'].toDouble(); // Now reading 'intensity'
       double ssim = item['ssim'].toDouble();
-      ssimSpots.add(FlSpot(quality, ssim));
+      ssimSpots.add(FlSpot(intensity, ssim));
     }
 
-    // Susun dari kualiti 10 hingga 90 supaya graf bergerak dari kiri ke kanan dengan betul
     ssimSpots.sort((a, b) => a.x.compareTo(b.x));
 
     return Container(
@@ -29,20 +28,20 @@ class AuditGraphSheet extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.analytics, color: Colors.indigo, size: 28),
-              SizedBox(width: 10),
+              const Icon(Icons.analytics, color: Colors.indigo, size: 28),
+              const SizedBox(width: 10),
               Text(
-                "Security Audit: Automated Stress Test",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo),
+                "$attackName Audit Graph",
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          const Text(
-            "Graph illustrates the structural decay (SSIM) of the image as JPEG compression becomes more aggressive.",
-            style: TextStyle(color: Colors.grey, fontSize: 13),
+          Text(
+            "Graph illustrates the structural decay (SSIM) of the image as the $attackName intensity increases.",
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
           ),
           const Divider(height: 30),
           Expanded(
@@ -53,22 +52,14 @@ class AuditGraphSheet extends StatelessWidget {
                   rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
                   bottomTitles: AxisTitles(
-                    axisNameWidget: const Text("JPEG Quality Attack Intensity (%)", style: TextStyle(fontWeight: FontWeight.bold)),
+                    axisNameWidget: const Text("Attack Intensity / Severity (%)", style: TextStyle(fontWeight: FontWeight.bold)),
                     axisNameSize: 30,
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 30,
-                      interval: 20,
-                    ),
+                    sideTitles: SideTitles(showTitles: true, reservedSize: 30, interval: 20),
                   ),
                   leftTitles: AxisTitles(
                     axisNameWidget: const Text("SSIM Score (1.0 = Perfect)", style: TextStyle(fontWeight: FontWeight.bold)),
                     axisNameSize: 30,
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      interval: 0.1,
-                      reservedSize: 40,
-                    ),
+                    sideTitles: SideTitles(showTitles: true, interval: 0.1, reservedSize: 40),
                   ),
                 ),
                 borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey.shade300)),
@@ -84,10 +75,7 @@ class AuditGraphSheet extends StatelessWidget {
                     barWidth: 4,
                     isStrokeCapRound: true,
                     dotData: const FlDotData(show: true),
-                    belowBarData: BarAreaData(
-                      show: true,
-                      color: Colors.indigo.withOpacity(0.2),
-                    ),
+                    belowBarData: BarAreaData(show: true, color: Colors.indigo.withOpacity(0.2)),
                   ),
                 ],
               ),

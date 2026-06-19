@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:convert'; // Untuk parsing JSON dari graf
+import 'dart:convert'; 
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
@@ -9,7 +9,7 @@ import 'dart:typed_data';
 import 'package:file_saver/file_saver.dart'; 
 import 'package:gal/gal.dart'; 
 import '../widgets/ai_chat_sheet.dart';
-import '../widgets/audit_graph_sheet.dart'; // Import graf baharu
+import '../widgets/audit_graph_sheet.dart'; 
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -19,7 +19,6 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // Pembolehubah Embed
   Uint8List? hostImageBytes;
   String? hostFileName;
   Uint8List? watermarkBytes;
@@ -27,19 +26,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Uint8List? resultImageBytes;
   bool isEmbedding = false;
 
-  // Pembolehubah Attack/Extract
   Uint8List? testImageBytes;
   String? testFileName;
   Uint8List? extractedWatermarkBytes;
   bool isExtracting = false;
   bool isAttacking = false;
-  bool isStressTesting = false; // State baharu untuk butang graf
+  bool isStressTesting = false; 
   
-  // Metrik Analisis
   String? attackMse;
   String? attackPsnr;
-  String? attackSsim; // Metrik SSIM baharu
+  String? attackSsim; 
   String? currentAttackName; 
+  String? selectedAttackType; // NEW: Tracks selected chip
 
   final String apiUrl = "https://dct-watermarking-project.onrender.com";
 
@@ -61,6 +59,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           attackPsnr = null;
           attackSsim = null; 
           currentAttackName = null; 
+          selectedAttackType = null; // RESET SELECTION
         }
       });
     }
@@ -95,15 +94,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Success! Image saved to Gallery AND Secure Vault.'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('Success! Saved to Gallery AND Vault.'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving file: $e'), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -116,7 +111,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String tiling = (prefs.getInt('tilingFactor') ?? 4).toString();
 
     var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/embed'));
-    
     request.files.add(http.MultipartFile.fromBytes('host_image', hostImageBytes!, filename: hostFileName));
     request.files.add(http.MultipartFile.fromBytes('watermark', watermarkBytes!, filename: watermarkFileName));
     request.fields['alpha'] = alpha;
@@ -135,7 +129,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> triggerAttack(String attackType) async {
     if (testImageBytes == null) return;
-    setState(() => isAttacking = true);
+    
+    setState(() {
+      isAttacking = true;
+      selectedAttackType = attackType; // Set active chip
+    });
+    
     var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/attack/$attackType'));
     request.files.add(http.MultipartFile.fromBytes('file', testImageBytes!, filename: testFileName ?? 'attack_target.png'));
 
@@ -149,7 +148,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           extractedWatermarkBytes = null; 
           attackMse = response.headers['x-mse'];
           attackPsnr = response.headers['x-psnr'];
-          attackSsim = response.headers['x-ssim']; // <-- Membaca nilai SSIM dari Server
+          attackSsim = response.headers['x-ssim']; 
           currentAttackName = formattedName; 
         });
       }
@@ -158,13 +157,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // FUNGSI BAHARU: STRESS TEST GRAF
   Future<void> runStressTest() async {
-    if (testImageBytes == null) return;
+    // Prevent run if no attack selected
+    if (testImageBytes == null || selectedAttackType == null) return; 
     setState(() => isStressTesting = true);
 
     try {
-      var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/stresstest'));
+      // DYNAMIC ROUTE based on selection
+      var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/stresstest/$selectedAttackType'));
       request.files.add(http.MultipartFile.fromBytes('file', testImageBytes!, filename: testFileName ?? 'stress_target.png'));
 
       var response = await request.send();
@@ -177,11 +177,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
-            builder: (context) => AuditGraphSheet(testData: jsonData['data']),
+            // PASS DYNAMIC NAME TO GRAPH
+            builder: (context) => AuditGraphSheet(testData: jsonData['data'], attackName: currentAttackName ?? "Security"),
           );
         }
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Server Error: Failed to run audit.'), backgroundColor: Colors.red));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Server Error.'), backgroundColor: Colors.red));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Network Error: $e'), backgroundColor: Colors.red));
@@ -202,7 +203,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       var request = http.MultipartRequest('POST', Uri.parse('$apiUrl/extract'));
       String safeFileName = testFileName ?? 'attacked_target.png';
       request.files.add(http.MultipartFile.fromBytes('watermarked_image', testImageBytes!, filename: safeFileName));
-      
       request.fields['tiling_factor'] = tiling;
       request.fields['heavy_voting'] = heavyVoting;
 
@@ -245,9 +245,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // ==============================
           // 1. EMBED CARD
-          // ==============================
           Card(
             elevation: 2,
             child: Padding(
@@ -294,9 +292,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 16),
           
-          // ==============================
           // 2. ATTACK & AUDIT CARD
-          // ==============================
           Card(
             elevation: 2,
             color: Colors.red[50],
@@ -319,15 +315,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       : Wrap(
                           spacing: 8, alignment: WrapAlignment.center,
                           children: [
-                            ActionChip(label: const Text("JPEG"), onPressed: () => triggerAttack('jpeg')),
-                            ActionChip(label: const Text("Noise"), onPressed: () => triggerAttack('noise')),
-                            ActionChip(label: const Text("Crop"), onPressed: () => triggerAttack('crop')),
-                            ActionChip(label: const Text("Scale"), onPressed: () => triggerAttack('scale')),
+                            // DYNAMIC CHOICE CHIPS
+                            ChoiceChip(
+                              label: const Text("JPEG"),
+                              selected: selectedAttackType == 'jpeg',
+                              selectedColor: Colors.red[200],
+                              onSelected: (selected) { if (selected) triggerAttack('jpeg'); },
+                            ),
+                            ChoiceChip(
+                              label: const Text("Noise"),
+                              selected: selectedAttackType == 'noise',
+                              selectedColor: Colors.red[200],
+                              onSelected: (selected) { if (selected) triggerAttack('noise'); },
+                            ),
+                            ChoiceChip(
+                              label: const Text("Crop"),
+                              selected: selectedAttackType == 'crop',
+                              selectedColor: Colors.red[200],
+                              onSelected: (selected) { if (selected) triggerAttack('crop'); },
+                            ),
+                            ChoiceChip(
+                              label: const Text("Scale"),
+                              selected: selectedAttackType == 'scale',
+                              selectedColor: Colors.red[200],
+                              onSelected: (selected) { if (selected) triggerAttack('scale'); },
+                            ),
                           ],
                         ),
                     const SizedBox(height: 16),
                     
-                    // UI BAHARU: SSIM & BUTANG GRAF
                     if (attackMse != null && attackPsnr != null)
                       Column(
                         children: [
@@ -347,7 +363,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                                 : const Icon(Icons.analytics),
                             label: Text(isStressTesting ? "Generating Audit..." : "Generate Deep Security Audit Graph"),
-                            onPressed: isStressTesting ? null : runStressTest,
+                            onPressed: (isStressTesting || selectedAttackType == null) ? null : runStressTest,
                           ),
                           const SizedBox(height: 16),
                         ],
@@ -361,9 +377,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 16),
 
-          // ==============================
           // 3. EXTRACT CARD
-          // ==============================
           Card(
             elevation: 2,
             color: Colors.green[50],

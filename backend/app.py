@@ -7,7 +7,6 @@ import os
 import cv2
 from src.watermarker import BlockDCTWatermarker
 import src.attacks as attacks
-# PASTIKAN calculate_ssim DIIMPORT DARI METRICS ANDA!
 from src.metrics import calculate_psnr, calculate_mse, calculate_ssim
 
 app = FastAPI(title="SecureMark API")
@@ -18,7 +17,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # DEDAHKAN X-SSIM SUPAYA FLUTTER BOLEH BACA
     expose_headers=["X-MSE", "X-PSNR", "X-SSIM"] 
 )
 
@@ -69,7 +67,7 @@ async def extract_watermark(
     return FileResponse(output_path, media_type="image/png")
 
 # =====================================================================
-# 3. ATTACK ROUTE (Kini memulangkan SSIM)
+# 3. ATTACK ROUTE
 # =====================================================================
 @app.post("/attack/{attack_type}")
 async def apply_attack(attack_type: str, file: UploadFile = File(...)):
@@ -98,12 +96,12 @@ async def apply_attack(attack_type: str, file: UploadFile = File(...)):
             
         mse_val = calculate_mse(img_original, img_attacked)
         psnr_val = calculate_psnr(img_original, img_attacked)
-        ssim_val = calculate_ssim(img_original, img_attacked) # KIRA SSIM
+        ssim_val = calculate_ssim(img_original, img_attacked) 
             
         response = FileResponse(output_path)
         response.headers["X-MSE"] = f"{mse_val:.2f}"
         response.headers["X-PSNR"] = f"{psnr_val:.2f}"
-        response.headers["X-SSIM"] = f"{ssim_val:.4f}" # HANTAR SSIM KE FLUTTER
+        response.headers["X-SSIM"] = f"{ssim_val:.4f}" 
             
         return response
 
@@ -113,10 +111,10 @@ async def apply_attack(attack_type: str, file: UploadFile = File(...)):
         return PlainTextResponse(f"Python Bug: {str(e)}", status_code=500)
 
 # =====================================================================
-# 4. LALUAN BAHARU: STRESS TEST UNTUK GRAF
+# 4. DYNAMIC STRESS TEST ROUTE
 # =====================================================================
-@app.post("/stresstest")
-async def run_stress_test(file: UploadFile = File(...)):
+@app.post("/stresstest/{attack_type}")
+async def run_stress_test(attack_type: str, file: UploadFile = File(...)):
     try:
         input_path = f"data/output/temp_stress_{file.filename}"
         with open(input_path, "wb") as f: shutil.copyfileobj(file.file, f)
@@ -125,18 +123,32 @@ async def run_stress_test(file: UploadFile = File(...)):
         if img_original is None: return JSONResponse(content={"error": "Invalid image"}, status_code=400)
 
         results = []
-        test_qualities = [90, 60, 30, 10] 
+        
+        # X-Axis: Attack Intensity / Severity (10% = Weak, 90% = Extreme)
+        intensities = [10, 30, 60, 90] 
 
-        for q in test_qualities:
-            out_path = f"data/output/stress_q{q}.jpg"
-            attacks.attack_jpeg_compression(input_path, out_path, quality=q)
-            img_attacked = cv2.imread(out_path)
+        for intensity in intensities:
+            out_path = f"data/output/stress_{attack_type}_{intensity}.jpg"
             
+            # Map the percentage intensity to the actual mathematical attack
+            if attack_type == "jpeg":
+                attacks.attack_jpeg_compression(input_path, out_path, quality=100 - intensity)
+            elif attack_type == "noise":
+                attacks.attack_gaussian_noise(input_path, out_path, var=intensity)
+            elif attack_type == "crop":
+                attacks.attack_cropping(input_path, out_path, crop_ratio=intensity / 100.0)
+            elif attack_type == "scale":
+                scale_f = max(0.1, 1.0 - (intensity / 100.0))
+                attacks.attack_scaling(input_path, out_path, scale_factor=scale_f)
+            else:
+                return JSONResponse(content={"error": "Invalid attack type"}, status_code=400)
+
+            img_attacked = cv2.imread(out_path)
             psnr_val = calculate_psnr(img_original, img_attacked)
             ssim_val = calculate_ssim(img_original, img_attacked)
             
             results.append({
-                "quality": q,
+                "intensity": intensity, 
                 "psnr": round(psnr_val, 2),
                 "ssim": round(ssim_val, 4)
             })
